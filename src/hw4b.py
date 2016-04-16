@@ -24,7 +24,7 @@ def gen_parity_pair(nbit, num):
     :param num: number of sequences
 
     """
-    X = numpy.random.randint(2, size=(nbit,num))
+    X = numpy.random.randint(2, size=(num,nbit))
     Y = numpy.mod(numpy.sum(X, axis=1), 2)
     return X,Y
 
