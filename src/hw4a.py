@@ -52,7 +52,36 @@ class RNNSLU2(object):
         :param cs: word window context size
 
         """
-        pass
+        self.emb = theano.shared(name='embeddings',
+                                 value=0.2 * numpy.random.uniform(-1.0, 1.0,
+                                 (ne+1, de))
+                                 # add one for padding at the end
+                                 .astype(theano.config.floatX))
+        self.wx = theano.shared(name='wx',
+                                value=0.2 * numpy.random.uniform(-1.0, 1.0,
+                                (de * cs, nh))
+                                .astype(theano.config.floatX))
+        self.wh = theano.shared(name='wh',
+                                value=0.2 * numpy.random.uniform(-1.0, 1.0,
+                                (nh, nh))
+                                .astype(theano.config.floatX))
+        self.w = theano.shared(name='w',
+                               value=0.2 * numpy.random.uniform(-1.0, 1.0,
+                               (nh, nc))
+                               .astype(theano.config.floatX))
+        self.bh = theano.shared(name='bh',
+                                value=numpy.zeros(nh,
+                                dtype=theano.config.floatX))
+        self.b = theano.shared(name='b',
+                               value=numpy.zeros(nc,
+                               dtype=theano.config.floatX))
+        self.h0 = theano.shared(name='h0',
+                                value=numpy.zeros(nh,
+                                dtype=theano.config.floatX))
+
+        # bundle
+        self.params = [self.emb, self.wx, self.wh, self.w,
+                       self.bh, self.b, self.h0]
 
 def test_rnnslu(**kwargs):
     """
@@ -95,14 +124,14 @@ def test_rnnslu(**kwargs):
     # process input arguments
     param = {
         'fold': 3,
-        'lr': 0.0970806646812754,
+        'lr': 0.5,
         'verbose': True,
         'decay': True,
         'win': 7,
         'nhidden': 200,
         'seed': 345,
         'emb_dimension': 50,
-        'nepochs': 60,
+        'nepochs': 40,
         'savemodel': False,
         'normal': True,
         'folder':'../result'}
