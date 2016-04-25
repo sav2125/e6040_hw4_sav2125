@@ -35,11 +35,11 @@ class RNN(object):
 #TODO: build and train a MLP to learn parity function
 def test_mlp_parity(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=100,
              batch_size=128, n_hidden=500, n_hiddenLayers=3,
-             verbose=False):
+             verbose=False,inp = 8):
     # generate datasets
-    train_set = gen_parity_pair(8, 1000)
-    valid_set = gen_parity_pair(8, 500)
-    test_set  = gen_parity_pair(8, 100)
+    train_set = gen_parity_pair(inp, 1000)
+    valid_set = gen_parity_pair(inp, 500)
+    test_set  = gen_parity_pair(inp, 100)
 
     # Convert raw dataset to Theano shared variables.
     train_set_x, train_set_y = shared_dataset(train_set)
@@ -68,10 +68,10 @@ def test_mlp_parity(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=100
     classifier = myMLP(
         rng=rng,
         input=x,
-        n_in=8,
+        n_in=inp,
         n_hidden=n_hidden,
         n_hiddenLayers=n_hiddenLayers,
-        n_out=2
+        n_out=1
     )
 
     # the cost we minimize during training is the negative log likelihood of
