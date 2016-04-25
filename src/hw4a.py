@@ -30,7 +30,7 @@ sys.setrecursionlimit(1500)
 class RNNSLU2(object):
     """ Elman Neural Net Model Class
     """
-    def __init__(self, nh, ng, nc, ne, de, cs):
+    def __init__(self, nh, ng, nc, ne, de, cs,normal):
         """Initialize the parameters for the RNNSLU
 
         :type nh: int
@@ -52,6 +52,7 @@ class RNNSLU2(object):
         :param cs: word window context size
 
         """
+        # parameters of the model
         self.emb = theano.shared(name='embeddings',
                                  value=0.2 * numpy.random.uniform(-1.0, 1.0,
                                  (ne+1, de))
@@ -61,16 +62,24 @@ class RNNSLU2(object):
                                 value=0.2 * numpy.random.uniform(-1.0, 1.0,
                                 (de * cs, nh))
                                 .astype(theano.config.floatX))
-        self.wh = theano.shared(name='wh',
+        
+        self.wy = theano.shared(name='wy',
                                 value=0.2 * numpy.random.uniform(-1.0, 1.0,
-                                (nh, nh))
+                                (nh, ng))
                                 .astype(theano.config.floatX))
+        self.wh = theano.shared(name='wh',value=0.2 * numpy.random.uniform(-1.0, 1.0,(nh, nh)).astype(theano.config.floatX))
+        
+        self.wg = theano.shared(name='wg',value=0.2 * numpy.random.uniform(-1.0, 1.0,(ng, ng)).astype(theano.config.floatX))
+        
         self.w = theano.shared(name='w',
                                value=0.2 * numpy.random.uniform(-1.0, 1.0,
-                               (nh, nc))
+                               (ng, nc))
                                .astype(theano.config.floatX))
-        self.bh = theano.shared(name='bh',
+        self.bh0 = theano.shared(name='bh',
                                 value=numpy.zeros(nh,
+                                dtype=theano.config.floatX))
+        self.bh1 = theano.shared(name='bh',
+                                value=numpy.zeros(ng,
                                 dtype=theano.config.floatX))
         self.b = theano.shared(name='b',
                                value=numpy.zeros(nc,
@@ -78,10 +87,81 @@ class RNNSLU2(object):
         self.h0 = theano.shared(name='h0',
                                 value=numpy.zeros(nh,
                                 dtype=theano.config.floatX))
+        self.h1 = theano.shared(name='h1',
+                                value=numpy.zeros(ng,
+                                dtype=theano.config.floatX))
 
         # bundle
-        self.params = [self.emb, self.wx, self.wh, self.w,
-                       self.bh, self.b, self.h0]
+        self.params = [self.emb, self.wx, self.wy,self.wh, self.wg, self.w,
+                       self.bh0, self.bh1,self.b, self.h0, self.h1]
+
+        # as many columns as context window size
+        # as many lines as words in the sentence
+        idxs = T.imatrix()
+        x = self.emb[idxs].reshape((idxs.shape[0], de*cs))
+        y_sentence = T.ivector('y_sentence')  # labels
+
+
+        def recurrence(x_t, h_tm1, h_tm2):
+            h_t = T.nnet.sigmoid(T.dot(x_t, self.wx)
+                                 + T.dot(h_tm1, self.wh) + self.bh0)
+            h1_t = T.nnet.sigmoid(T.dot(h_t, self.wy)
+                                 + T.dot(h_tm2, self.wg) + self.bh1)
+            s_t = T.nnet.softmax(T.dot(h1_t, self.w) + self.b)
+            return [h_t, h1_t ,s_t]
+
+        [h_0, h_1 , s], _ = theano.scan(fn=recurrence,
+                                sequences=x,
+                                outputs_info=[self.h0,self.h1,None],
+                                n_steps=x.shape[0])
+
+        p_y_given_x_sentence = s[:, 0, :]
+        y_pred = T.argmax(p_y_given_x_sentence, axis=1)
+
+        # cost and gradients and learning rate
+        lr = T.scalar('lr')
+
+        sentence_nll = -T.mean(T.log(p_y_given_x_sentence)
+                               [T.arange(x.shape[0]), y_sentence])
+        sentence_gradients = T.grad(sentence_nll, self.params)
+        sentence_updates = OrderedDict((p, p - lr*g)
+                                       for p, g in
+                                       zip(self.params, sentence_gradients))
+
+        # theano functions to compile
+        self.classify = theano.function(inputs=[idxs], outputs=y_pred)
+        self.sentence_train = theano.function(inputs=[idxs, y_sentence, lr],
+                                              outputs=sentence_nll,
+                                              updates=sentence_updates)
+        self.normalize = theano.function(inputs=[],
+                                         updates={self.emb:
+                                                  self.emb /
+                                                  T.sqrt((self.emb**2)
+                                                  .sum(axis=1))
+                                                  .dimshuffle(0, 'x')})
+        self.normal = normal
+
+    def train(self, x, y, window_size, learning_rate):
+
+        cwords = contextwin(x, window_size)
+        words = list(map(lambda x: numpy.asarray(x).astype('int32'), cwords))
+        labels = y
+
+        self.sentence_train(words, labels, learning_rate)
+        if self.normal:
+            self.normalize()
+
+    def save(self, folder):
+        for param in self.params:
+            numpy.save(os.path.join(folder,
+                       param.name + '.npy'), param.get_value())
+
+    def load(self, folder):
+        for param in self.params:
+            param.set_value(numpy.load(os.path.join(folder,
+                            param.name + '.npy')))
+        
+
 
 def test_rnnslu(**kwargs):
     """
@@ -302,15 +382,17 @@ def test_rnnslu2(**kwargs):
     # process input arguments
     param = {
         'fold': 3,
-        'lr': 0.0970806646812754,
+        'lr': 0.5,
         'verbose': True,
         'decay': True,
-        'win': 7,
-        'nhidden': 200,
+        'win': 3,
+        'nhidden1': 50,
+        'nhidden2' : 100,
         'seed': 345,
-        'emb_dimension': 50,
-        'nepochs': 60,
+        'emb_dimension': 7,
+        'nepochs': 30,
         'savemodel': False,
+        'normal' : True,
         'folder':'../result'}
     param_diff = set(kwargs.keys()) - set(param.keys())
     if param_diff:
@@ -352,7 +434,16 @@ def test_rnnslu2(**kwargs):
 
     # TODO
     print('... building the model')
-    # rnn = RNNSLU2()
+    rnn = RNNSLU2(
+        nh=param['nhidden1'],
+        ng=param['nhidden2'],
+        nc=nclasses,
+        ne=vocsize,
+        de=param['emb_dimension'],
+        cs=param['win'],
+        normal = param['normal']
+    )
+
 
     # train with early stopping on validation set
     print('... training')
