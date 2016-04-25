@@ -318,7 +318,7 @@ class myMLP(object):
 class RNNSLU(object):
     """ Elman Neural Net Model Class
     """
-    def __init__(self, nh, nc, ne, de, cs, normal=True):
+    def __init__(self, nh, nc, ne, de, cs, normal):
         """Initialize the parameters for the RNNSLU
 
         :type nh: int

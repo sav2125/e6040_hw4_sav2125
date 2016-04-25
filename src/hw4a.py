@@ -259,7 +259,9 @@ def test_rnnslu(**kwargs):
         nc=nclasses,
         ne=vocsize,
         de=param['emb_dimension'],
-        cs=param['win'])
+        cs=param['win'],
+        normal = param['normal']
+    )
 
     # train with early stopping on validation set
     print('... training')
