@@ -5,7 +5,7 @@ Instructor: Prof. Aurel A. Lazar
 
 """
 
-import numpy
+import numpy as np
 from collections import OrderedDict
 from itertools import product
 
@@ -26,76 +26,82 @@ def gen_parity_pair(nbit, num):
     :param num: number of sequences
 
     """
-    X = numpy.random.randint(2, size=(num,nbit))
-    Y = numpy.mod(numpy.sum(X, axis=1), 2)
+    X = np.random.randint(2, size=(num,nbit))
+    Y = np.mod(np.sum(X, axis=1), 2)
     return X,Y
 
 #TODO: implement RNN class to learn parity function
 
-class RNNparity(object):
+class RNNf(object):
 
-    def __init__(self, input, n_in, n_hidden, n_out):
+    def __init__(self, input, n_in, nh, nc):
+        
+        """Initialize the parameters for the RNNSLU
 
-        self.emb = theano.shared(name='embeddings',
-                                 value=0.2 * numpy.random.uniform(-1.0, 1.0,
-                                 (ne+1, de))
-                                 # add one for padding at the end
-                                 .astype(theano.config.floatX))
-        self.wx = theano.shared(name='wx',
-                                value=0.2 * numpy.random.uniform(-1.0, 1.0,
-                                (de * cs, nh))
-                                .astype(theano.config.floatX))
-        self.wh = theano.shared(name='wh',
-                                value=0.2 * numpy.random.uniform(-1.0, 1.0,
-                                (nh, nh))
-                                .astype(theano.config.floatX))
-        self.w = theano.shared(name='w',
-                               value=0.2 * numpy.random.uniform(-1.0, 1.0,
-                               (nh, nc))
-                               .astype(theano.config.floatX))
-        self.bh = theano.shared(name='bh',
-                                value=numpy.zeros(nh,
-                                dtype=theano.config.floatX))
-        self.b = theano.shared(name='b',
-                               value=numpy.zeros(nc,
-                               dtype=theano.config.floatX))
-        self.h0 = theano.shared(name='h0',
-                                value=numpy.zeros(nh,
-                                dtype=theano.config.floatX))
+        :type nh: int
+        :param nh: dimension of the first hidden layer
 
-        # bundle
-        self.params = [self.emb, self.wx, self.wh, self.w,
+        :type ng: int
+        :param ng: dimension of the second hidden layer
+
+        :type nc: int
+        :param nc: number of classes
+
+        :type ne: int
+        :param ne: number of word embeddings in the vocabulary
+
+        :type de: int
+        :param de: dimension of the word embeddings
+
+        :type cs: int
+        :param cs: word window context size
+
+        """
+        # parameters of the model
+        self.input = input
+        self.wx = theano.shared(name='wx', value = np.asarray(np.random.uniform(size=(n_in, nh),
+                                                 low=-.01, high=.01),
+                                                 dtype=theano.config.floatX))
+        
+        self.wh = theano.shared(name='wh', value=np.asarray(np.random.uniform(size=(nh, nh),
+                                              low=-.01, high=.01),
+                                              dtype=theano.config.floatX))
+                                          
+        self.w = theano.shared(name='w', value = np.asarray(np.random.uniform(size=(nh, nc),
+                                                  low=-.01, high=.01),
+                                                  dtype=theano.config.floatX))
+
+        self.h0 = theano.shared(name='h0', value=np.zeros((nh,), dtype=theano.config.floatX))
+        
+        self.bh = theano.shared(name='bh', value=np.zeros((nh,), dtype=theano.config.floatX))
+
+        self.b = theano.shared(name='b', value=np.zeros((nc,), dtype=theano.config.floatX))
+
+        self.params = [ self.wx, self.wh,self.w,
                        self.bh, self.b, self.h0]
-
-        # as many columns as context window size
-        # as many lines as words in the sentence
-        idxs = T.imatrix()
-        #x = self.emb[idxs].reshape((idxs.shape[0], de*cs))
-        #y_sentence = T.ivector('y_sentence')  # labels
-
-
-        def recurrence(x_t, h_tm1):
+        def recurrence(x_t,h_tm1):
+            
             h_t = T.nnet.sigmoid(T.dot(x_t, self.wx)
                                  + T.dot(h_tm1, self.wh) + self.bh)
-            s_t = T.nnet.softmax(T.dot(h_t, self.w) + self.b)
-            return [h_t, s_t]
-        [self.h0, self.y_pred], _ = theano.scan(fn=recurrence,
-                                sequences=self.input,
-                                outputs_info=[self.h0, None])
-        # the hidden state `h` for the entire sequence, and the output for the
-        # entire sequence `y` (first dimension is always time)
-        self.L1 = abs(self.w.sum()) + abs(self.wx.sum()) + abs(self.wh1.sum()) + abs(self.wh12.sum()) + abs(self.wh2.sum())
-        self.L2_sqr = (self.w ** 2).sum() + (self.wx ** 2).sum() + (self.wh1 ** 2).sum() + (self.wh2 ** 2).sum() + abs(self.wh12 ** 2).sum()
+            s_t = (T.dot(h_t, self.w) + self.b)
+            
+            return [h_t,s_t]
+
+        [self.h0, self.y_pred], _ = theano.scan(recurrence,
+                                               sequences=self.input,
+                                               outputs_info=[self.h0,None])
+
+        # be small
+        self.L1 = abs(self.w.sum()) + abs(self.wx.sum()) + abs(self.wh.sum()) 
+        #self.L1=0                         
+                                  
+        self.L2_sqr = (self.w ** 2).sum() + (self.wx ** 2).sum() + (self.wh ** 2).sum() 
         self.p_y_given_x = T.nnet.softmax(self.y_pred)
         self.y_out = T.argmax(self.p_y_given_x, axis=-1)
-        self.loss = lambda y: -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])
-        
-
-
+        self.loss = lambda y: -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])        
 
     def errors(self, y):
-        print(y.ndim)
-        print(self.y_out.ndim)
+
         if y.ndim != self.y_out.ndim:
             raise TypeError('y should have the same shape as self.y_out',
                 ('y', y.type, 'y_out', self.y_out.type))
@@ -106,12 +112,14 @@ class RNNparity(object):
         return -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])
 
 
+
+
 def test_rnn_parity(learning_rate=0.09, L1_reg=0.00, L2_reg=0.0001, n_epochs=100,
-             batch_size=8, n_hidden=500, n_hiddenLayers=1,parity=8,verbose = True):
+             batch_size=8, n_hidden=500, n_hiddenLayers=1,inp=8,verbose = True):
     # generate datasets
-    train_set = gen_parity_pair(parity, 1000)
-    valid_set = gen_parity_pair(parity, 500)
-    test_set  = gen_parity_pair(parity, 100)
+    train_set = gen_parity_pair(inp, 1000)
+    valid_set = gen_parity_pair(inp, 500)
+    test_set  = gen_parity_pair(inp, 100)
 
     # Convert raw dataset to Theano shared variables.
     train_set_x, train_set_y = shared_dataset(train_set)
@@ -134,15 +142,14 @@ def test_rnn_parity(learning_rate=0.09, L1_reg=0.00, L2_reg=0.0001, n_epochs=100
     y = T.ivector('y')  # the labels are presented as 1D vector of
                         # [int] labels
 
-    rng = numpy.random.RandomState(1234)
+    rng = np.random.RandomState(1234)
 
     # TODO: construct a neural network, either MLP or CNN.
-    classifier = RNN(
+    classifier = RNNf(
         input=x,
-        n_in=parity,
-        n_hidden=n_hidden,
-        n_out=2
-    )
+        n_in=inp,
+        nh=n_hidden,
+        nc=2)
     # the cost we minimize during training is the negative log likelihood of
     # the model plus the regularization terms (L1 and L2); cost is expressed
     # here symbolically
@@ -240,7 +247,7 @@ def test_mlp_parity(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=100
     y = T.ivector('y')  # the labels are presented as 1D vector of
                         # [int] labels
 
-    rng = numpy.random.RandomState(1234)
+    rng = np.random.RandomState(1234)
 
     # TODO: construct a neural network, either MLP or CNN.
     # classifier = myMLP(...)
