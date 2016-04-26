@@ -342,6 +342,7 @@ def test_rnnslu(**kwargs):
            'valid F1', param['vf1'],
            'best test F1', param['tf1'],
            'with the model', param['folder'])
+    return dic, rnn.emb.get_value(), train_set, idx2word
 
 def test_rnnslu2(**kwargs):
     """

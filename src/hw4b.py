@@ -71,7 +71,7 @@ def test_mlp_parity(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=100
         n_in=inp,
         n_hidden=n_hidden,
         n_hiddenLayers=n_hiddenLayers,
-        n_out=1
+        n_out=2
     )
 
     # the cost we minimize during training is the negative log likelihood of
