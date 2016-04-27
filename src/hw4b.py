@@ -15,7 +15,7 @@ from theano import tensor as T
 from hw4_utils import shared_dataset
 from hw4_nn import myMLP, train_nn
 
-def gen_parity_pair(nbit, num):
+def gen_parity_pair(nbit, num, flag):
     """
     Generate binary sequences and their parity bits
 
@@ -26,15 +26,22 @@ def gen_parity_pair(nbit, num):
     :param num: number of sequences
 
     """
-    X = np.random.randint(2, size=(num,nbit))
-    Y = np.mod(np.sum(X, axis=1), 2)
+    X = np.random.randint(2, size=(num,nbit)).astype('float32')
+    if flag == True:
+        #RNN
+        Y = np.zeros((num,nbit)).astype('int64')
+        for index in range(X.shape[1]):
+            Y[:,index] = np.mod(np.sum(X[:, :index+1], axis=1), 2).astype('int64')
+    else:
+        Y = np.mod(np.sum(X, axis=1), 2)
+        
     return X,Y
 
 #TODO: implement RNN class to learn parity function
 
 class RNNf(object):
 
-    def __init__(self, input, n_in, nh, nc):
+    def __init__(self, n_in, nh, nc):
         
         """Initialize the parameters for the RNNSLU
 
@@ -57,9 +64,8 @@ class RNNf(object):
         :param cs: word window context size
 
         """
-        # parameters of the model
-        self.input = input
-        self.wx = theano.shared(name='wx', value = np.asarray(np.random.uniform(size=(n_in, nh),
+        # parameters of th
+        self.wx = theano.shared(name='wx', value = np.asarray(np.random.uniform(size=(1, nh),
                                                  low=-.01, high=.01),
                                                  dtype=theano.config.floatX))
         
@@ -79,37 +85,47 @@ class RNNf(object):
 
         self.params = [ self.wx, self.wh,self.w,
                        self.bh, self.b, self.h0]
+        x  = T.matrix()
+        y_sentence = T.ivector()
+        
         def recurrence(x_t,h_tm1):
             
             h_t = T.nnet.sigmoid(T.dot(x_t, self.wx)
                                  + T.dot(h_tm1, self.wh) + self.bh)
-            s_t = (T.dot(h_t, self.w) + self.b)
+            s_t = T.nnet.softmax(T.dot(h_t, self.w) + self.b)
             
             return [h_t,s_t]
 
-        [self.h0, self.y_pred], _ = theano.scan(recurrence,
-                                               sequences=self.input,
-                                               outputs_info=[self.h0,None])
+        [h, s], _ = theano.scan(fn = recurrence,sequences= x ,
+                                               outputs_info=[self.h0,None], n_steps = x.shape[0])
+
+        p_y_given_x_sentence = s[:, 0, :]
+        y_pred = T.argmax(p_y_given_x_sentence[-1,:])
+
+        # cost and gradients and learning rate
+        lr = T.scalar('lr')
+
+        sentence_nll = -T.mean(T.log(p_y_given_x_sentence)
+                               [T.arange(x.shape[0]), y_sentence])
+        sentence_gradients = T.grad(sentence_nll, self.params)
+        sentence_updates = OrderedDict((p, p - lr*g)
+                                       for p, g in
+                                       zip(self.params, sentence_gradients))
+
+        # theano functions to compile
+        self.classify = theano.function(inputs=[x], outputs=y_pred)
+        self.train = theano.function(inputs=[x, y_sentence, lr],
+                                              outputs=sentence_nll,
+                                              updates=sentence_updates)
 
         # be small
-        self.L1 = abs(self.w.sum()) + abs(self.wx.sum()) + abs(self.wh.sum()) 
+        #self.L1 = abs(self.w.sum()) + abs(self.wx.sum()) + abs(self.wh.sum()) 
         #self.L1=0                         
                                   
-        self.L2_sqr = (self.w ** 2).sum() + (self.wx ** 2).sum() + (self.wh ** 2).sum() 
-        self.p_y_given_x = T.nnet.softmax(self.y_pred)
-        self.y_out = T.argmax(self.p_y_given_x, axis=-1)
-        self.loss = lambda y: -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])        
-
-    def errors(self, y):
-
-        if y.ndim != self.y_out.ndim:
-            raise TypeError('y should have the same shape as self.y_out',
-                ('y', y.type, 'y_out', self.y_out.type))
-        if y.dtype.startswith('int'):
-            return T.mean(T.neq(self.y_out, y))
-
-    def negative_log_likelihood(self, y):
-        return -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])
+        #self.L2_sqr = (self.w ** 2).sum() + (self.wx ** 2).sum() + (self.wh ** 2).sum() 
+        #self.p_y_given_x = T.nnet.softmax(self.y_pred)
+        #        self.y_out = T.argmax(self.p_y_given_x, axis=-1)
+        #       self.loss = lambda y: -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])        
 
 
 
@@ -216,6 +232,126 @@ def test_rnn_parity(learning_rate=0.09, L1_reg=0.00, L2_reg=0.0001, n_epochs=100
     accuracy = train_nn(train_model, validate_model, test_model,
         n_train_batches, n_valid_batches, n_test_batches, n_epochs, verbose)
     return accuracy
+def test_rnn_pp(lr=0.9, L1_reg=0.00, L2_reg=0.00, nepochs=100,
+             batch_size=32, nhidden=12, n_hiddenLayers=1,inp=8,verbose = True):
+    """
+    Wrapper function for training and testing RNNSLU
+
+    :type fold: int
+    :param fold: fold index of the ATIS dataset, from 0 to 4.
+
+    :type lr: float
+    :param lr: learning rate used (factor for the stochastic gradient.
+
+    :type nepochs: int
+    :param nepochs: maximal number of epochs to run the optimizer.
+
+    :type win: int
+    :param win: number of words in the context window.
+
+    :type nhidden: int
+    :param n_hidden: number of hidden units.
+
+    :type emb_dimension: int
+    :param emb_dimension: dimension of word embedding.
+
+    :type verbose: boolean
+    :param verbose: to print out epoch summary or not to.
+
+    :type decay: boolean
+    :param decay: decay on the learning rate if improvement stop.
+
+    :type savemodel: boolean
+    :param savemodel: save the trained model or not.
+
+    :type normal: boolean
+    :param normal: normalize word embeddings after each update or not.
+
+    :type folder: string
+    :param folder: path to the folder where results will be stored.
+
+    """
+    # process input arguments
+    param = {
+        'fold': 3,
+        'lr': lr,
+        'verbose': True,
+        'decay': True,
+        'win': 7,
+        'nhidden': nhidden,
+        'seed': 345,
+        'emb_dimension': 50,
+        'nepochs': nepochs,
+        'savemodel': False,
+        'normal': True,
+        'folder':'../result'}
+
+    if param['verbose']:
+        for k,v in param.items():
+            print("%s: %s" % (k,v))
+
+    # create result folder if not exists
+    #check_dir(param['folder'])
+
+    # load the dataset
+       # print('... loading the dataset')
+    #train_set, valid_set, test_set, dic = load_data(param['fold'])
+
+    # create mapping from index to label, and index to word
+    #idx2label = dict((k, v) for v, k in dic['labels2idx'].items())
+    #idx2word = dict((k, v) for v, k in dic['words2idx'].items())
+
+    # unpack dataset
+    train_lex, train_y = gen_parity_pair(inp, 1000, True)
+    valid_lex, valid_y = gen_parity_pair(inp, 500, True)
+    test_lex, test_y = gen_parity_pair(inp, 100, True)
+
+    # instanciate the model
+    np.random.seed(param['seed'])
+
+    print('... building the model')
+    rnn = RNNf(n_in = inp, nh = nhidden, nc = 2)
+
+    # train with early stopping on validation set
+    print('... training')
+    best_f1 = -np.inf
+    param['clr'] = param['lr']
+    for e in range(param['nepochs']):
+
+        # shuffle
+        #shuffle([train_lex, train_ne, train_y], param['seed'])
+
+        #param['ce'] = e
+        #tic = timeit.default_timer()
+      
+        for i, (x, y) in enumerate(zip(train_lex, train_y)):
+            rnn.train(x.reshape((inp,1)), y.astype('int32'), param['clr'])
+            
+        # evaluation // back into the real world : idx -> words
+        predictions_test = np.array([rnn.classify(x.reshape((inp,1))) for x in test_lex])
+        validations_test = np.array([rnn.classify(x.reshape((inp,1))) for x in valid_lex])
+        
+        # evaluation // compute the accuracy using conlleval.pl
+        test_accuracy = ((predictions_test.reshape(1,test_lex.shape[0])==test_y[:,-1]).sum()*100.0)/test_lex.shape[0]
+        valid_accuracy = ((validations_test.reshape(1,valid_lex.shape[0])==valid_y[:,-1]).sum()*100.0)/valid_lex.shape[0]
+        
+        best_val_acc = -  (np.inf)
+        best_test_acc = -  (np.inf)
+        if (best_val_acc < valid_accuracy):
+            best_val_acc = valid_accuracy
+            best_test_acc = test_accuracy
+
+            
+        if param['verbose']:
+            print('NEW BEST: epoch', e,
+                      'valid F1', valid_accuracy,
+                      'best test F1', test_accuracy)
+
+            
+    print('BEST RESULT: epoch', e,
+           'valid F1', best_val_acc,
+           'best test F1', best_test_acc)
+
     
 
 #TODO: build and train a MLP to learn parity function
